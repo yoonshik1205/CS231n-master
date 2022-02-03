@@ -9,7 +9,7 @@ except ImportError:
     print('You may also need to restart your iPython kernel')
 
 from cs231n.im2col import *
-
+from cs231n import im2col   # added because there was an error saying this was not imported
 
 def conv_forward_im2col(x, w, b, conv_param):
     """

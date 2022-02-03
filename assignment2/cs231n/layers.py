@@ -666,9 +666,9 @@ def spatial_batchnorm_forward(x, gamma, beta, bn_param):
     # Your implementation should be very short; ours is less than five lines. #
     ###########################################################################
     N, C, H, W = x.shape
-    x = x.transpose(0,2,3,1).reshape(N*H*W, C)
-    out, cache = batchnorm_forward(x, gamma, beta, bn_param)
-    out = out.reshape(N, H, W, C).transpose(0,3,1,2)
+    xT = x.transpose(0, 2, 3, 1).reshape(-1, C)
+    out, cache = batchnorm_forward(xT, gamma, beta, bn_param)
+    out = out.reshape(N, H, W, C).transpose(0, 3, 1, 2)
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -699,9 +699,9 @@ def spatial_batchnorm_backward(dout, cache):
     # Your implementation should be very short; ours is less than five lines. #
     ###########################################################################
     N, C, H, W = dout.shape
-    dout = dout.transpose(0,2,3,1).reshape(N*H*W, C)
-    dx, dgamma, dbeta = batchnorm_backward_alt(dout, cache)
-    dx = dx.reshape(N, H, W, C).transpose(0,3,1,2)
+    doutT = dout.transpose(0, 2, 3, 1).reshape(-1, C)
+    dx, dgamma, dbeta = batchnorm_backward_alt(doutT, cache)
+    dx = dx.reshape(N, H, W, C).transpose(0, 3, 1, 2)
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -737,20 +737,19 @@ def spatial_groupnorm_forward(x, gamma, beta, G, gn_param):
     # the bulk of the code is similar to both train-time batch normalization  #
     # and layer normalization!                                                # 
     ###########################################################################
+    assert x.shape[1]%G==0, 'G wrong'
+
     N, C, H, W = x.shape
-    size = (N*G, C//G *H*W)
-    x = x.reshape(size).T
-    gamma = gamma.reshape(1, C, 1, 1)
-    beta = beta.reshape(1, C, 1, 1)
-    # similar to batch normalization
-    mu = x.mean(axis=0)
-    var = x.var(axis=0) + eps
-    std = np.sqrt(var)
-    z = (x - mu)/std
-    z = z.T.reshape(N, C, H, W)
-    out = gamma * z + beta
-    # save values for backward call
-    cache={'std':std, 'gamma':gamma, 'z':z, 'size':size}
+    out = np.zeros(x.shape)
+    cache = ([], G, gamma, beta)
+    flatgamma, flatbeta = gamma.flatten(), beta.flatten()
+    gn_param['mode'] = 'train'
+    gn_param['layernorm'] = 1
+    for i in range(0, C, C//G):
+        ixT = x[:, i:i+C//G, :, :].reshape(N, -1).T
+        iout, icache = batchnorm_forward(ixT, np.tile(flatgamma[i:i+C//G], H*W).reshape(-1, 1), np.tile(flatbeta[i:i+C//G], H*W).reshape(-1, 1), gn_param)
+        out[:, i:i+C//G, :, :] = iout.T.reshape(N, C//G, H, W)
+        cache[0].append(icache)
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -777,20 +776,18 @@ def spatial_groupnorm_backward(dout, cache):
     # This will be extremely similar to the layer norm implementation.        #
     ###########################################################################
     N, C, H, W = dout.shape
-    size = cache['size']
-    dbeta = dout.sum(axis=(0,2,3), keepdims=True)
-    dgamma = np.sum(dout * cache['z'], axis=(0,2,3), keepdims=True)
-
-    # reshape tensors
-    z = cache['z'].reshape(size).T
-    M = z.shape[0]
-    dfdz = dout * cache['gamma']
-    dfdz = dfdz.reshape(size).T
-    # copy from batch normalization backward alt
-    dfdz_sum = np.sum(dfdz,axis=0)
-    dx = dfdz - dfdz_sum/M - np.sum(dfdz * z,axis=0) * z/M
-    dx /= cache['std']
-    dx = dx.T.reshape(N, C, H, W)
+    caches, G, gamma, beta = cache
+    dx = np.zeros(dout.shape)
+    flatdgamma = np.zeros(C)
+    flatdbeta = np.zeros(C)
+    for i in range(0, C, C//G):
+        idoutT = dout[:, i:i+C//G, :, :].reshape(N, -1).T
+        idx, idgamma, idbeta = batchnorm_backward_alt(idoutT, caches[i//(C//G)])
+        dx[:, i:i+C//G, :, :] = idx.T.reshape(N, C//G, H, W)
+        flatdgamma[i:i+C//G] = idgamma[:C//G]
+        flatdbeta[i:i+C//G] = idbeta[:C//G]
+    dgamma = flatdgamma.reshape(gamma.shape)
+    dbeta = flatdbeta.reshape(beta.shape)
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
