@@ -782,10 +782,10 @@ def spatial_groupnorm_backward(dout, cache):
     flatdbeta = np.zeros(C)
     for i in range(0, C, C//G):
         idoutT = dout[:, i:i+C//G, :, :].reshape(N, -1).T
-        idx, idgamma, idbeta = batchnorm_backward_alt(idoutT, caches[i//(C//G)])
+        idx, idgamma, idbeta = batchnorm_backward(idoutT, caches[i//(C//G)])
         dx[:, i:i+C//G, :, :] = idx.T.reshape(N, C//G, H, W)
-        flatdgamma[i:i+C//G] = idgamma[:C//G]
-        flatdbeta[i:i+C//G] = idbeta[:C//G]
+        flatdgamma[i:i+C//G] = idgamma.reshape(-1, C//G).sum(axis=0)
+        flatdbeta[i:i+C//G] = idbeta.reshape(-1, C//G).sum(axis=0)
     dgamma = flatdgamma.reshape(gamma.shape)
     dbeta = flatdbeta.reshape(beta.shape)
     ###########################################################################
